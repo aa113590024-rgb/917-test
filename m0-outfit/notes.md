@@ -11,4 +11,4 @@
 #https://www.sciencefocus.com/planet-earth/after-humanity-a-timeline-of-the-earth-after-we-go-extinct
 #https://theconversation.com/if-humans-went-extinct-what-would-the-earth-look-like-one-year-later-199737
 #https://www.cbsnews.com/news/great-dying-permian-triassic-extinction-event-warning-humanity/
-- try your best 極端化、不要同質性、不是現在這個當下就能想到的現象
+- try your best 極端化、不要同質性、不是現在這個當下就能想到的現象、從不同觀點去看同一件事情
