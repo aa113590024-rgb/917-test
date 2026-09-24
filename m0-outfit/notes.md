@@ -10,3 +10,4 @@
 3. 樹木與自然的基本顏色不再是綠色，而是因為各種物質化學作用，變成繽紛色彩，生物亦是亮麗的顏色。
 #https://www.sciencefocus.com/planet-earth/after-humanity-a-timeline-of-the-earth-after-we-go-extinct
 #https://theconversation.com/if-humans-went-extinct-what-would-the-earth-look-like-one-year-later-199737
+#https://www.cbsnews.com/news/great-dying-permian-triassic-extinction-event-warning-humanity/
