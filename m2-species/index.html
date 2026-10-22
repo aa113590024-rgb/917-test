@@ -1,1 +1,221 @@
+// ==========================================
+// 1. 頂點著色器
+// ==========================================
+const vertSource = `
+  attribute vec3 aPosition;
+  varying vec2 vUv;
+  void main() {
+    vUv = aPosition.xy * 0.5 + 0.5;
+    gl_Position = vec4(aPosition, 1.0);
+  }
+`;
 
+// ==========================================
+// 2. 片段著色器（扁平融球 + 紅黃樹木環境 + 反光）
+// ==========================================
+const fragSource = `
+  precision highp float;
+  varying vec2 vUv;
+
+  uniform vec2 u_resolution;
+  uniform float u_time;
+  uniform vec3 u_ball0;
+  uniform vec3 u_ball1;
+  uniform vec3 u_ball2;
+
+  // 紅黃色系樹木位置與顏色
+  const vec3 treePos0 = vec3(-2.2,  0.4, -0.6); // 左側紅楓
+  const vec3 treePos1 = vec3( 2.1,  0.7, -1.0); // 右側金黃杏樹
+  const vec3 treePos2 = vec3( 0.2, -1.0, -0.7); // 下方琥珀樹
+
+  const vec3 treeCol0 = vec3(1.0, 0.18, 0.08); // 豔紅
+  const vec3 treeCol1 = vec3(1.0, 0.82, 0.12); // 金黃
+  const vec3 treeCol2 = vec3(1.0, 0.48, 0.05); // 暖橙
+
+  // 繪製背景中的樹木
+  vec3 renderTrees(vec3 ro, vec3 rd, float maxT) {
+    vec3 col = vec3(0.0);
+    vec3 trees[3];  trees[0] = treePos0;  trees[1] = treePos1;  trees[2] = treePos2;
+    vec3 colors[3]; colors[0] = treeCol0; colors[1] = treeCol1; colors[2] = treeCol2;
+
+    for (int i = 0; i < 3; i++) {
+      vec3 tp = trees[i];
+      vec3 toTree = tp - ro;
+      float proj = dot(toTree, rd);
+
+      if (proj > 0.0 && proj < maxT) {
+        float distToRay = length(toTree - rd * proj);
+        float foliage = smoothstep(0.85, 0.0, distToRay);
+
+        vec3 hitP = ro + rd * proj;
+        float trunkDist = length(vec2(hitP.x - tp.x, hitP.z - tp.z));
+        float trunkMask = step(tp.y - 1.8, hitP.y) * step(hitP.y, tp.y - 0.2);
+        float trunk = smoothstep(0.07, 0.0, trunkDist) * trunkMask;
+
+        col += colors[i] * foliage * 1.6;
+        col += vec3(0.25, 0.12, 0.05) * trunk * 0.9;
+      }
+    }
+    return col;
+  }
+
+  // 扁平化融球勢能場
+  float metaballField(vec3 p) {
+    vec3 squash = vec3(1.0, 2.4, 1.15); // Y 軸壓縮 2.4 倍成扁平體
+    float ripple = sin(p.x * 2.5 + u_time * 2.0) * 0.06;
+    vec3 pRippled = p + vec3(0.0, ripple, 0.0);
+
+    vec3 q0 = (pRippled - u_ball0) * squash;
+    vec3 q1 = (pRippled - u_ball1) * squash;
+    vec3 q2 = (pRippled - u_ball2) * squash;
+
+    float r = 0.55;
+
+    return (r * r) / (dot(q0, q0) + 0.0001) +
+           (r * r) / (dot(q1, q1) + 0.0001) +
+           (r * r) / (dot(q2, q2) + 0.0001);
+  }
+
+  // 法向量計算
+  vec3 getNormal(vec3 p) {
+    float eps = 0.004;
+    float base = metaballField(p);
+    float dx = metaballField(p + vec3(eps, 0.0, 0.0)) - base;
+    float dy = metaballField(p + vec3(0.0, eps, 0.0)) - base;
+    float dz = metaballField(p + vec3(0.0, 0.0, eps)) - base;
+    return -normalize(vec3(dx, dy, dz));
+  }
+
+  // 金屬彩虹光譜
+  vec3 metallicRainbow(float t) {
+    vec3 a = vec3(0.55, 0.55, 0.55);
+    vec3 b = vec3(0.45, 0.45, 0.45);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.00, 0.33, 0.67);
+    return a + b * cos(6.28318 * (c * t + d));
+  }
+
+  void main() {
+    vec2 st = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+    vec3 ro = vec3(0.0, 0.0, 4.8);
+    vec3 rd = normalize(vec3(st * 1.35, -1.8));
+
+    float maxDist = 9.0;
+    vec3 bgBase = vec3(0.02, 0.03, 0.06) + vec3(0.05, 0.04, 0.08) * (st.y + 0.5);
+    vec3 bgColor = bgBase + renderTrees(ro, rd, maxDist);
+
+    float threshold = 1.0;
+    float t = 1.5;
+    bool hit = false;
+    vec3 hitPos = vec3(0.0);
+
+    for (int i = 0; i < 95; i++) {
+      vec3 p = ro + rd * t;
+      float field = metaballField(p);
+
+      if (field >= threshold) {
+        for (int j = 0; j < 4; j++) {
+          t -= 0.02;
+          p = ro + rd * t;
+          if (metaballField(p) < threshold) {
+            t += 0.01;
+            break;
+          }
+        }
+        hitPos = ro + rd * t;
+        hit = true;
+        break;
+      }
+      t += 0.045;
+      if (t > maxDist) break;
+    }
+
+    if (hit) {
+      vec3 N = getNormal(hitPos);
+      vec3 V = -rd;
+
+      // 菲涅耳透明薄膜
+      float fresnel = pow(1.0 - max(dot(N, V), 0.0), 2.4);
+
+      // 彩虹金屬反射
+      vec3 refl = reflect(rd, N);
+      float phase = refl.x * 0.7 + refl.y * 0.7 + refl.z * 0.4 + u_time * 0.12;
+      vec3 iridescence = metallicRainbow(phase);
+
+      // 高光
+      vec3 lightDir = normalize(vec3(1.2, 1.8, 1.4));
+      vec3 H = normalize(lightDir + V);
+      float spec = pow(max(dot(N, H), 0.0), 36.0);
+
+      // 靠近樹木時的動態反射
+      vec3 treeReflect = vec3(0.0);
+      vec3 trees[3];  trees[0] = treePos0;  trees[1] = treePos1;  trees[2] = treePos2;
+      vec3 colors[3]; colors[0] = treeCol0; colors[1] = treeCol1; colors[2] = treeCol2;
+
+      for (int i = 0; i < 3; i++) {
+        vec3 toTree = trees[i] - hitPos;
+        float d = length(toTree);
+        vec3 L = normalize(toTree);
+        float proximity = clamp(1.4 / (d * d + 0.25), 0.0, 2.8);
+        float reflMatch = pow(max(dot(refl, L), 0.0), 5.0);
+        treeReflect += colors[i] * (reflMatch * 2.2 + 0.2) * proximity;
+      }
+
+      vec3 membraneColor = mix(bgColor * 0.6, iridescence * 1.1, fresnel)
+                         + treeReflect * (fresnel * 0.8 + 0.35)
+                         + vec3(spec * 0.9);
+
+      gl_FragColor = vec4(membraneColor, 1.0);
+    } else {
+      gl_FragColor = vec4(bgColor, 1.0);
+    }
+  }
+`;
+
+// ==========================================
+// 3. 核心游動函數：向右定向游動 + 保留有機隨機擾動
+// ==========================================
+function getNoisePos(time, seedOffset) {
+  let cycleWidth = 8.5;
+  let rightSpeed = 0.45;
+  let baseX = ((time * rightSpeed) % cycleWidth) - (cycleWidth / 2.0);
+
+  let noiseX = map(noise(time * 0.7 + seedOffset, 0, 0), 0, 1, -0.75, 0.75);
+  let x = baseX + noiseX;
+
+  let y = map(noise(0, time * 0.6 + seedOffset, 15.0), 0, 1, -0.85, 0.85);
+  let z = map(noise(30.0, 0, time * 0.5 + seedOffset), 0, 1, -1.1, 1.1);
+  return { x, y, z };
+}
+
+// ==========================================
+// 4. p5.js 生命週期
+// ==========================================
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  noStroke();
+  metaballShader = createShader(vertSource, fragSource);
+}
+
+function draw() {
+  shader(metaballShader);
+
+  let t = frameCount * 0.009;
+
+  let b0 = getNoisePos(t, 0.0);
+  let b1 = getNoisePos(t, 40.0);
+  let b2 = getNoisePos(t, 80.0);
+
+  metaballShader.setUniform('u_resolution', [width, height]);
+  metaballShader.setUniform('u_time', millis() / 1000.0);
+  metaballShader.setUniform('u_ball0', [b0.x, b0.y, b0.z]);
+  metaballShader.setUniform('u_ball1', [b1.x, b1.y, b1.z]);
+  metaballShader.setUniform('u_ball2', [b2.x, b2.y, b2.z]);
+
+  quad(-1, -1, 1, -1, 1, 1, -1, 1);
+}
+//雛形的程式碼
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
